@@ -1,9 +1,10 @@
 # tigervnc-cli
-Used for adding, deleting, modifying, querying, starting and stopping of tigervnc.
-
 不好意思啊，我英文差，基本都是机翻，通篇没有注释但是比较好懂，后期再慢慢补上注释吧。
 
 ```shell
+usage: tigervnc-cli [-h] [-c COMMAND] [-u USER] [-p PORT [PORT ...]] [-a] [-d] [-e EDIT] [-s] [-l] [-i]
+
+Control Tigervnc, providing functions of adding, deleting, modifying, querying, stopping and starting.
 example:
     tigervnc-cli -c check                   Confirm the status of all ports.
     tigervnc-cli -u user1 -c status         Confirm the service status of User1.
@@ -11,6 +12,7 @@ example:
     tigervnc-cli -u user1 -l -p 3 4         ! Disable port 3 and port 4 of user1.
 
     ! <-- The symbol indicates that administrative privileges are required.
+
 options:
   -h, --help            show this help message and exit
   -c COMMAND, --command COMMAND
@@ -20,6 +22,8 @@ options:
                         stop     Stop service
                         enable   Enable service and Start service
                         disable  Disable service and Stop service
+                        check    check all port status
+                        startup  startup all port service
 
   -u USER, --user USER  Enter username
   -p PORT [PORT ...], --port PORT [PORT ...]

@@ -7,6 +7,7 @@
 
 import os, sys
 import argparse
+import time
 from pprint import pprint
 
 RED = "\033[1;31m"
@@ -43,6 +44,8 @@ start    Start service
 stop     Stop service
 enable   Enable service and Start service
 disable  Disable service and Stop service
+check    check all port status
+startup  startup all port service
 
 """)
 parser.add_argument('-u', '--user', help="Enter username", type=str)
@@ -57,7 +60,7 @@ args = parser.parse_args()
 
 if not DEBUG:
     for i in [args.add, args.delete, args.edit, args.delete, args.locked, args.unlocked]:
-        if i:
+        if i or args.command == 'startup':
             if os.geteuid() != 0:
                 print("user is not root, permission denied\n")
                 sys.exit(1)
@@ -225,13 +228,25 @@ def main(path):
                     status = checkStatus(i['port'])
                     print(f"{BOLD}{user_name}:{RESET:<5}\t\tPort {i['port']} is {status}")
         sys.exit(0)
+    if args.command == 'startup':
+        for user_name, values in full_list.items():
+            for i in values:
+                if i['enabled']:
+                    status = checkStatus(i['port'])
+                    if 'dead' in status:
+                        print(f"{BOLD}{user_name}:{RESET:<5}\t\tPort {i['port']} is {status}")
+                        for comm in ['disable', 'stop', 'enable', 'start']:
+                            os.popen(f"systemctl {comm} vncserver@:{i['port']}", 'r')
+        sys.exit(0)
+
     users = getUserStatus(full_list, args.user)
 
     if users:
         for user, ports in users.items():
             port_list = [x['port'] for x in ports]
-            for port in ports:
-                port = port['port']
+            if args.port:
+                port_list = list(args.port)
+            for port in port_list:
                 # command
                 if args.command == 'status':
                     status = checkStatus(port)
@@ -243,9 +258,10 @@ def main(path):
                     os.popen(f'systemctl {args.command} vncserver@:{port}', 'r')
                 elif args.command:
                     os.popen(f'systemctl {args.command} vncserver@:{port}', 'r')
+                    time.sleep(2)
+                    status = checkStatus(port)
+                    print(f"{BOLD}{user}:{RESET} Port {port} is {status}")
 
-            if args.port:
-                port_list = list(args.port)
             if args.locked and args.user == user:
                 editConfig(full_list, 'locked', port_list, path)
             if args.unlocked and args.user == user:
