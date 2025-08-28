@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Author: Li Zhihao
+# Date: 2025/08/28
+# Description: Control Tigervnc, providing functions of adding, deleting, modifying, querying, stopping and starting.
+# Version: 0.1
+
+import os, sys
+import argparse
+from pprint import pprint
+
+RED = "\033[1;31m"
+GREEN = "\033[1;32m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+CONFIG_TITLE = """# TigerVNC User assignment
+#
+# This file assigns users to specific VNC display numbers.
+# The syntax is <display>=<username>. E.g.:
+#
+# :2=andrew
+# :3=lisa
+"""
+
+DEBUG = 0
+if DEBUG == 1: print("DEBUG mode is Enable! ")
+
+parser = argparse.ArgumentParser(
+    description="""Control Tigervnc, providing functions of adding, deleting, modifying, querying, stopping and starting.
+example:
+    %(prog)s -c check                   Confirm the status of all ports.
+    %(prog)s -u user1 -c status         Confirm the service status of User1.
+    %(prog)s -u user1 -l                ! Disable all ports for user1.
+    %(prog)s -u user1 -l -p 3 4         ! Disable port 3 and port 4 of user1.
+    
+    ! <-- The symbol indicates that administrative privileges are required.
+""",
+    formatter_class=argparse.RawTextHelpFormatter
+)
+parser.add_argument('-c', '--command', help="""operate tigervnc:
+status   check service status
+start    Start service
+stop     Stop service
+enable   Enable service and Start service
+disable  Disable service and Stop service
+
+""")
+parser.add_argument('-u', '--user', help="Enter username", type=str)
+parser.add_argument('-p', '--port', help="Enter Port Number, Multiple entries can be made.\n\n", type=int, nargs='+')
+parser.add_argument('-a', '--add', help="! Add Tigervnc Port", action='store_true')
+parser.add_argument('-d', '--delete', help="! Delete Tigervnc Port", action='store_true')
+parser.add_argument('-e', '--edit', help="! Input the modified port", type=int)
+parser.add_argument('-s', '--search', help="Search for user configuration", action='store_true')
+parser.add_argument('-l', '--locked', help="! locked user", action='store_true')
+parser.add_argument('-i', '--unlocked', help="! unlocked user", action='store_true')
+args = parser.parse_args()
+
+if not DEBUG:
+    for i in [args.add, args.delete, args.edit, args.delete, args.locked, args.unlocked]:
+        if i:
+            if os.geteuid() != 0:
+                print("user is not root, permission denied\n")
+                sys.exit(1)
+
+
+def getTigerList(path):
+    try:
+        with open(path, 'r') as file:
+            vnc_list = file.read().splitlines()
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
+
+    users = {}
+    line_number = 0
+
+    for i in vnc_list:
+        line_number += 1
+        if i.startswith("# ") or i == "#":
+            continue
+
+        disk_port = i.split('=')[0]
+        user_name = i.split('=')[1]
+        if user_name not in users:
+            users.update({user_name: []})
+        if disk_port.startswith('#:'):
+            num = int(disk_port.strip("#:"))
+            try:
+                users[user_name].append({'enabled': False, 'port': num, 'line': line_number})
+            except KeyError:
+                print(KeyError)
+
+        if disk_port.startswith(':'):
+            num = int(disk_port.strip(':'))
+            try:
+                users[user_name].append({'enabled': True, 'port': num, 'line': line_number})
+            except KeyError:
+                print(KeyError)
+
+    return users
+
+
+def lastlinebr(path) -> bool:
+    with open(path, 'r') as f:
+        lines = f.readlines()
+
+    if lines:
+        last_line = lines[-1]
+        if not last_line.endswith('\n'):
+            return False
+        else:
+            return True
+
+
+def getUserStatus(lists, user):
+    try:
+        return {user: lists[user]}
+    except KeyError:
+        print(f'not found {user} user')
+        return False
+
+
+def checkPort(path, port):
+    for key, values in getTigerList(path).items():
+        for value in values:
+            if value['enabled'] and port == value['port']:
+                print(f"{RED}port: {port} is exist, please input again{RESET}")
+                sys.exit(1)
+
+
+def addPort(path):
+    if args.add and args.port:
+        if_br = lastlinebr(path)
+        checkPort(path, args.port[0])
+        with open(path, 'a') as file:
+            if if_br:
+                print(f':{args.port}={args.user}\n', file=file)
+            else:
+                print(f'\n:{args.port}={args.user}\n', file=file)
+    else:
+        print("please input port")
+        sys.exit(1)
+
+
+def writeconfig(config, path):
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(CONFIG_TITLE)
+        for entry in config:
+            if entry['enabled']:
+                line_content = f":{entry['port']}={entry['name']}\n"
+            else:
+                line_content = f"#:{entry['port']}={entry['name']}\n"
+            f.write(line_content)
+
+
+def editConfig(config, action, ports, path, edit=None):
+    entries = []
+    for user, values in config.items():
+        for item in values:
+            if item['enabled']:
+                entries.append({
+                    'line': item['line'],
+                    'port': item['port'],
+                    'name': user,
+                    'enabled': True
+                })
+            else:
+                entries.append({
+                    'line': item['line'],
+                    'port': item['port'],
+                    'name': user,
+                    'enabled': False
+                })
+
+    sorted_entries = sorted(entries, key=lambda x: x['line'])
+    if action == 'search':
+        for i in sorted_entries:
+            if i['name'] == args.user:
+                print(f"Name: {i['name']}, Port: {i['port']}, Status: {i['enabled']}")
+        return None
+    new_sorted_entries = []
+    for i in sorted_entries:
+        if action == 'locked':
+            for port in ports:
+                if i['port'] == port:
+                    i['enabled'] = False
+                    print(f"Name: {i['name']}, Port: {i['port']}, Status: {i['enabled']}")
+        if action == 'unlocked':
+            for port in ports:
+                if i['port'] == port:
+                    i['enabled'] = True
+                    print(f"Name: {i['name']}, Port: {i['port']}, Status: {i['enabled']}")
+        if action == 'deleted':
+            for port in ports:
+                if i['port'] == port:
+                    continue
+            continue
+        if action == 'edit':
+            if i['port'] == ports[0]:
+                i['port'] = edit
+        new_sorted_entries.append(i)
+
+    if DEBUG:
+        # pprint(new_sorted_entries)
+        writeconfig(new_sorted_entries, './vncserver.users')
+    else:
+        writeconfig(new_sorted_entries, path)
+
+
+def checkStatus(port):
+    status = os.popen(f'systemctl show vncserver@:{port} -p SubState', 'r').read().splitlines()[0].split('=')[1]
+    if status == "running":
+        msg_status = f"{GREEN}{status}{RESET}"
+        return msg_status
+    msg_status = f"{RED}{status}{RESET}"
+    return msg_status
+
+
+def main(path):
+    full_list = getTigerList(path)
+    if args.command == 'check':
+        for user_name, values in full_list.items():
+            for i in values:
+                if i['enabled']:
+                    status = checkStatus(i['port'])
+                    print(f"{BOLD}{user_name}:{RESET:<5}\t\tPort {i['port']} is {status}")
+        sys.exit(0)
+    users = getUserStatus(full_list, args.user)
+
+    if users:
+        for user, ports in users.items():
+            port_list = [x['port'] for x in ports]
+            for port in ports:
+                port = port['port']
+                # command
+                if args.command == 'status':
+                    status = checkStatus(port)
+                    print(f"{BOLD}{user}:{RESET} Port {port} is {status}")
+                elif args.command == 'enable':
+                    os.popen(f'systemctl {args.command} vncserver@:{port} --now', 'r')
+                elif args.command == 'disable':
+                    os.popen(f'systemctl stop vncserver@:{port}', 'r')
+                    os.popen(f'systemctl {args.command} vncserver@:{port}', 'r')
+                elif args.command:
+                    os.popen(f'systemctl {args.command} vncserver@:{port}', 'r')
+
+            if args.port:
+                port_list = list(args.port)
+            if args.locked and args.user == user:
+                editConfig(full_list, 'locked', port_list, path)
+            if args.unlocked and args.user == user:
+                editConfig(full_list, 'unlocked', port_list, path)
+            if args.delete and args.user == user:
+                editConfig(full_list, 'deleted', port_list, path)
+            if args.search and args.user == user:
+                editConfig(full_list, 'search', port_list, path)
+            if args.edit and args.user == user:
+                if len(port_list) == 1:
+                    checkPort(path, args.edit)
+                    editConfig(full_list, 'edit', port_list, path, args.edit)
+                else:
+                    print("The port modification can only be done one by one.")
+
+    if args.add:
+        addPort(full_list)
+
+
+if __name__ == '__main__':
+    config_path = '/etc/tigervnc/vncserver.users'
+    main(config_path)
